@@ -1,0 +1,143 @@
+---
+title: "PA1_template.Rmd"
+author: "me"
+date: "9/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First, the data and packages used to process it must be loaded
+
+```{r, message = FALSE, warning = FALSE}
+data <- read.csv("activity.csv")
+library(lubridate)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+The data is processed using dplyr to calculate the mean, median, and sum of the steps taken each day. A data table called "stepsbyday" is created, which holds this information in variables "stepsbyday", "medsteps",  and "sumsteps". A second data table called "stepsbydayf" is created for data with the missing values filled in (the rule used will be covered below). 
+
+```{r}
+#calculating mean, medium, and sum of steps by day
+stepsbyday <- data%>%
+      select(date, steps)%>%
+      drop_na()%>%
+      group_by(date)%>%
+      summarize(avgsteps = mean(steps))
+medsteps <- data%>%
+      select(date, steps)%>%
+      drop_na()%>%
+      group_by(date)%>%
+      summarize(medsteps = median(steps))%>%
+      select(medsteps)
+sumsteps <- data%>%
+      select(date, steps)%>%
+      drop_na()%>%
+      group_by(date)%>%
+      summarize(sumsteps = sum(steps))%>%
+      select(sumsteps)
+stepsbyday <- cbind(stepsbyday, medsteps, sumsteps)
+#calculating mean steps across each time interval
+across <- data%>%
+      select(steps, interval)%>%
+      drop_na()%>%
+      group_by(interval)%>%
+      summarize(meansteps = mean(steps))
+across <- as.data.frame(across)
+names(across) <- c("interval", "steps")
+#replacing missing values
+missing <- data[is.na(data$steps),]
+missing <- missing %>%
+      arrange(interval)%>%
+      select(steps, interval)
+added <- join(missing, across, by = "interval", match = "first")
+names(added) <- c("interval", "removeme", "steps")
+added <- added%>%
+      select(interval, steps)
+addtome <- data[is.na(data$steps),]
+addtome <- addtome%>%
+      arrange(interval)%>%
+      select(date, interval)
+alldone <- cbind(addtome, added$steps)
+data_fixed <- left_join(data, alldone, by = c("date", "interval"))
+data_fixed[is.na(data_fixed)] = 0
+names(data_fixed) = c("steps1", "date", "interval", "steps2")
+dataf <- data_fixed%>%
+      mutate(stepsf = (steps1 + steps2))
+dataf <- dataf%>%
+   select(stepsf, interval, date)
+dataf$date <- ymd(data$date)
+#calculating mean, median, sum steps of filled in data
+stepsbydayf <- dataf%>%
+   select(date, stepsf)%>%
+   group_by(date)%>%
+   summarize(avgsteps = mean(stepsf))
+medstepsf <- dataf%>%
+   select(date, stepsf)%>%
+   group_by(date)%>%
+   summarize(medsteps = median(stepsf))%>%
+   select(medsteps)
+sumstepsf <- dataf%>%
+   select(date, stepsf)%>%
+   group_by(date)%>%
+   summarize(sumstepsf = sum(stepsf))%>%
+   select(sumstepsf)
+stepsbydayf <- cbind(stepsbydayf, medstepsf, sumstepsf)
+```
+
+GGplot2 is now used to create a histogram displaying the sum steps by day
+The mean and median steps per day are also displayed.
+
+```{r}
+ggplot(stepsbyday)+
+      geom_histogram(color = "black", fill = "grey", aes(x = sumsteps))
+allmean <- mean(stepsbyday$sumsteps)
+allmedian <- median(stepsbyday$sumsteps)
+cbind(allmean, allmedian)
+```
+
+A call to the base plotting system creates a line graph of mean steps by time interval across the entire sample.
+
+```{r}
+with(across, plot(interval, steps, type = "l"))
+across[which.max(across$steps),]
+```
+
+Missing values were filled in using the mean steps taken across all subjects during that time interval (using only real values).
+Similar steps as were taken with the original data frame "data" are taken with dataf to generate a histogram
+
+```{r}
+ggplot(stepsbydayf)+
+   geom_histogram(color = "black", fill = "grey", aes(x = sumstepsf))
+allmeanf <- mean(stepsbydayf$sumstepsf)
+allmedianf <- median(stepsbydayf$sumstepsf)
+cbind(allmean, allmedian)
+```
+
+We see that filling in the data leave the median and mean remarkably almost unchanged.
+dplyr and grepl are used to add another variable to dataf denoting whether the day in question is a weekday or weekend
+
+```{r}
+dataf <- dataf%>%
+   mutate(day = weekdays(date))%>%
+   mutate(daytype = ifelse(grepl("Saturday", day)|(grepl("Sunday", day)), "Weekend", "Weekday"))
+dataf$daytpe <- as.factor(dataf$daytype)
+daytypemean <- dataf%>%
+   select(stepsf, interval, daytype)%>%
+   group_by(daytype, interval)%>%
+   summarize(meansteps = mean(stepsf))
+```
+
+Finally, a faceted call to ggplot2 creates side by side line graphs comparing the mean steps by interval between weekdays and weekends.
+
+```{r}
+ggplot(daytypemean, aes(x = interval, y = meansteps))+
+   geom_line()+
+   facet_wrap(~ daytype)
+```
+
